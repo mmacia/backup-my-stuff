@@ -7,20 +7,25 @@ class Backup
       @bb = Bitbucket.new(options[:bitbucket_user], options[:bitbucket_password])
     end
 
-#    @gh = Github.new(options[:github_user], options[:github_password])
+    if options.include?(:github_user) && options.include?(:github_password)
+      @gh = Github.new(options[:github_user], options[:github_password])
+    end
 
     Dir.mkdir(@backup_dir) if !File.directory?(@backup_dir)
   end
 
   def backup_repositories
     backup_bitbucket if @bb
+    backup_github if @gh
   end
 
 
   protected
   def clone(repo_slug, type)
     dest_dir = File.join(@backup_dir, "#{type}-#{repo_slug}")
+
     url = @bb.url(repo_slug) if type == 'bitbucket'
+    url = @gh.url(repo_slug) if type == 'github'
 
    if File.directory?(dest_dir)
      `cd #{dest_dir}; git fetch --all --prune --tags`
@@ -82,6 +87,41 @@ class Backup
       if clone(repo_slug, 'bitbucket')
         new_filename = "bitbucket-#{repo_slug}-#{@bb.last_updated(repo_slug).strftime('%Y%m%d%H%M%S')}.tar.bz2"
         compress("bitbucket-#{repo_slug}", new_filename)
+      end
+    end
+  end
+
+  def backup_github
+    slugs = @gh.slugs
+
+    # update existent backups
+    Dir.entries(@backup_dir).each do |item|
+      next unless File.file?(File.join(@backup_dir, item)) # skip directories
+
+      m = item.match(/^github\-([a-zA-Z\d\-\_]+)\-(\d+)\.tar\.bz2$/)
+      next unless m # skip files with unknown format
+
+      repo_slug = m[1]
+      last_backup = DateTime.parse(m[2])
+      last_updated = @gh.last_updated(repo_slug)
+
+      if last_updated > last_backup
+        puts "updating backup for #{repo_slug} ..."
+        old_filename = "github-#{repo_slug}-#{last_backup.strftime('%Y%m%d%H%M%S')}.tar.bz2"
+        new_filename = "github-#{repo_slug}-#{last_updated.strftime('%Y%m%d%H%M%S')}.tar.bz2"
+
+        slugs.shift if clone(repo_slug, 'github') && compress("github-#{repo_slug}", new_filename, old_filename)
+      else
+        slugs.shift
+      end
+    end
+
+    # backup new repos
+    slugs.each do |repo_slug|
+      puts "backing up #{repo_slug} ..."
+      if clone(repo_slug, 'github')
+        new_filename = "github-#{repo_slug}-#{@gh.last_updated(repo_slug).strftime('%Y%m%d%H%M%S')}.tar.bz2"
+        compress("github-#{repo_slug}", new_filename)
       end
     end
   end
