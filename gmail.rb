@@ -49,4 +49,20 @@ class Gmail
 
     return mailboxes.flatten
   end
+
+  def parse_message_ids(maildir)
+    message_ids = []
+
+    maildir.list(:cur).each do |message|
+      text = message.data.encode('UTF-8', 'UTF-8', invalid: :replace)
+      m = text.match(/Message-I[dD]: <(.+?)>/)
+      if m
+        message_ids << m[1]
+      else
+        raise text
+      end
+    end
+
+    return message_ids
+  end
 end
