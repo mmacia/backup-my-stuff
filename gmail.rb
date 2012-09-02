@@ -13,37 +13,116 @@ class Gmail
 
     @imap = Net::IMAP.new(@options[:host], @options)
     @imap.login(@options[:username], @options[:password])
+
+    index_path = "#{@options[:backup_dir]}/index.yml"
+
+    # initialize index
+    if File.exist? index_path
+      @index_store = YAML::Store.new index_path
+    else
+      @index_store = YAML::Store.new index_path
+
+      @index_store.transaction do
+        @index_store['emails'] = []
+        @index_store['last_check'] = nil
+      end
+    end
+
+    @index = YAML.load_file(index_path)
   end
 
-  def fetch
+  def synchronize
+    @index_store.transaction do
+      @index_store['last_check'] = Time.now.strftime('%Y-%m-%d %H:%M:%S')
+    end
+
     mailboxes.each { |mailbox|
-      @imap.examine(mailbox)
-      maildir = Maildir.new("#{@options[:backup_dir]}/#{mailbox}")
-      @fetched = 0
-      @removed = 0
-
       puts "Fetching #{mailbox}"
-      @fetched_ids = parse_message_ids(maildir)
 
-      @imap.search(['ALL']).each { |message_id|
-        message = @imap.fetch(message_id, ['FLAGS', 'ENVELOPE'])
-        message_flags = message[0].attr['FLAGS']
-        message_envelope = message[0].attr['ENVELOPE']
-
-        store(maildir, message_flags, message_envelope, message_id)
-      }
-
-      # remove unmatched message ids
-      #if @fetched_ids.size > 0
-      #  p @fetched_ids.size
-      #end
-
-      puts "  #{@fetched} fetched"
-      #puts "  #{@removed} removed"
+      synchronize_mailbox(mailbox)
     }
   end
 
   private
+
+  def synchronize_mailbox(mailbox)
+    @imap.examine(mailbox)
+    remote_uids = @imap.uid_search(['ALL'])
+    idx = @index['emails'].include?(mailbox.to_sym) ? @index['emails'][mailbox.to_sym] : []
+
+    maildir = Maildir.new("#{@options[:backup_dir]}/#{mailbox}")
+    local_uids = idx.map { |msg| msg[:uid] }
+
+    # fetch new messages
+    new_uids = (remote_uids - local_uids)
+    (idx << fetch(new_uids, maildir)).flatten! unless new_uids.empty?
+
+    # remove local messages
+    remove_uids = (local_uids - remote_uids)
+    idx.delete_if { |item|
+      remove_uids.include? item[:uid]
+    }
+
+    puts "  #{new_uids.size} fetched"
+    puts "  #{remove_uids.size} removed"
+
+    # synchronize flags
+    if @index.include?('last_check') && !@index['last_check'].nil?
+      ts = DateTime.parse(@index['last_check'])
+      remote_uids = @imap.uid_search(['SINCE', ts.strftime('%e-%b-%Y')])
+
+      synchronize_flags(remote_uids, mailbox, maildir)
+      puts "  Flags synched"
+    end
+
+    # update index
+    @index_store.transaction do
+      @index_store['emails'] << { mailbox.to_sym => idx }
+    end
+  end
+
+  def fetch(uids, maildir)
+    processed = []
+
+    uids.each { |uid|
+      f = @imap.uid_fetch(uid, ['FLAGS', 'RFC822', 'ENVELOPE'])
+      flags = f[0].attr['FLAGS']
+      raw = f[0].attr['RFC822']
+
+      mdir = maildir.add(raw)
+
+      if flags.include? :Seen
+        mdir.process
+        mdir.add_flag('S')
+      end
+
+      mdir.add_flag('F') if flags.include? :Flagged
+      processed << { uid: uid, key: mdir.key }
+    }
+
+    return processed
+  end
+
+  def synchronize_flags(uids, mailbox, maildir)
+    idx = @index['emails'].include?(mailbox.to_sym) ? @index['emails'][mailbox.to_sym] : []
+
+    return if idx.empty?
+
+    local_uids = {}
+    idx.each { |item| local_uids[item[:uid]] = item[:key] }
+
+    uids.each { |uid|
+      f = @imap.uid_fetch(uid, ['FLAGS'])
+      flags = f[0].attr['FLAGS']
+
+      mdir = maildir.get(local_uids[uid.to_sym])
+
+      mdir.add_flag('S') if !mdir.flags.include?('S') && flags.include?(:Seen)
+      mdir.add_flag('F') if !mdir.flags.include?('F') && flags.include?(:Flagged)
+      mdir.remove_flag('S') if mdir.flags.include?('S') && !flags.include?(:Seen)
+      mdir.remove_flag('F') if mdir.flags.include?('F') && !flags.include?(:Flagged)
+    }
+  end
 
   def mailboxes(prefix = '')
     mailboxes = []
@@ -57,70 +136,5 @@ class Gmail
     end
 
     return mailboxes.flatten
-  end
-
-  def parse_message_ids(maildir)
-    message_ids = {}
-
-    maildir.list(:cur).each { |message|
-      text = message.data.encode('UTF-8', 'UTF-8', invalid: :replace)
-      message_ids[extract_message_id(text).to_sym] = message.key
-    }
-
-    return message_ids
-  end
-
-  def extract_message_id(raw)
-    msg_id = nil
-
-    raw.match(/Message-I[dD]:\s+(<(.+)>|(.+))/) { |m|
-      if m[2].nil? || m[2].empty?
-        msg_id = m[1].strip!
-      else
-        msg_id = m[2]
-      end
-    }
-
-    # multiline
-    raw.match(/Message-I[dD]:\s+<(.+?)>/m) { |m|
-      msg_id = m[1]
-    } if msg_id.nil?
-
-    raise raw if msg_id.nil?
-    return msg_id
-  end
-
-  def store(maildir, flags, envelope, uid)
-    msg_id = envelope.message_id.match(/<(.*?)>/)[1]
-    subject = envelope.subject
-    from = envelope.from[0].name
-
-    if !@fetched_ids.has_key?(msg_id.to_sym)
-      message = @imap.fetch(uid, ['RFC822'])[0].attr['RFC822']
-
-      decoded_subject = subject.nil? ? '' : NKF.nkf('-mw', subject)
-      decoded_from = from.nil? ? '' : NKF.nkf('-mw', from)
-      puts "#{decoded_from}: #{decoded_subject}"
-
-      mdir = maildir.add(message)
-
-      if flags.include? :Seen
-        mdir.process
-        mdir.add_flag('S')
-      end
-
-      mdir.add_flag('F') if flags.include? :Flagged
-      @fetched = @fetched + 1
-    else
-      # synchronize flags
-      mdir = maildir.get(@fetched_ids[msg_id.to_sym])
-
-      mdir.add_flag('S') if !mdir.flags.include?('S') && flags.include?(:Seen)
-      mdir.add_flag('F') if !mdir.flags.include?('F') && flags.include?(:Flagged)
-      mdir.remove_flag('S') if mdir.flags.include?('S') && !flags.include?(:Seen)
-      mdir.remove_flag('F') if mdir.flags.include?('F') && !flags.include?(:Flagged)
-
-      @fetched_ids.delete(msg_id.to_sym)
-    end
   end
 end
