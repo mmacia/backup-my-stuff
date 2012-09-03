@@ -14,27 +14,26 @@ class Gmail
     @imap = Net::IMAP.new(@options[:host], @options)
     @imap.login(@options[:username], @options[:password])
 
-    index_path = "#{@options[:backup_dir]}/index.yml"
+    Dir.mkdir(@options[:backup_dir]) unless Dir.exist? @options[:backup_dir]
+
+    @index_path = "#{@options[:backup_dir]}/index.yml"
 
     # initialize index
-    if File.exist? index_path
-      @index_store = YAML::Store.new index_path
-    else
-      @index_store = YAML::Store.new index_path
+    if !File.exist? @index_path
+      @index= {
+        :emails => {:Amazon => []},
+        :last_check => nil
+      }
 
-      @index_store.transaction do
-        @index_store['emails'] = []
-        @index_store['last_check'] = nil
-      end
+      File.open(@index_path, 'w') { |file| file.puts YAML.dump @index }
     end
 
-    @index = YAML.load_file(index_path)
+    @index = YAML.load_file(@index_path)
   end
 
   def synchronize
-    @index_store.transaction do
-      @index_store['last_check'] = Time.now.strftime('%Y-%m-%d %H:%M:%S')
-    end
+    @index[:last_check] = Time.now.strftime('%Y-%m-%d %H:%M:%S')
+    File.open(@index_path, 'w') { |file| file.puts YAML.dump @index }
 
     mailboxes.each { |mailbox|
       puts "Fetching #{mailbox}"
@@ -48,7 +47,8 @@ class Gmail
   def synchronize_mailbox(mailbox)
     @imap.examine(mailbox)
     remote_uids = @imap.uid_search(['ALL'])
-    idx = @index['emails'].include?(mailbox.to_sym) ? @index['emails'][mailbox.to_sym] : []
+
+    idx = @index[:emails].include?(mailbox.to_sym) ? @index[:emails][mailbox.to_sym] : []
 
     maildir = Maildir.new("#{@options[:backup_dir]}/#{mailbox}")
     local_uids = idx.map { |msg| msg[:uid] }
@@ -76,9 +76,8 @@ class Gmail
     end
 
     # update index
-    @index_store.transaction do
-      @index_store['emails'] << { mailbox.to_sym => idx }
-    end
+    @index[:emails][mailbox.to_sym] = idx
+    File.open(@index_path, 'w') { |file| file.puts YAML.dump @index }
   end
 
   def fetch(uids, maildir)
