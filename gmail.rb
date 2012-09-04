@@ -21,7 +21,7 @@ class Gmail
     # initialize index
     if !File.exist? @index_path
       @index= {
-        :emails => {:Amazon => []},
+        :emails => {},
         :last_check => nil
       }
 
@@ -32,17 +32,25 @@ class Gmail
   end
 
   def synchronize
-    @index[:last_check] = Time.now.strftime('%Y-%m-%d %H:%M:%S')
-    File.open(@index_path, 'w') { |file| file.puts YAML.dump @index }
+    start = Time.now.strftime('%Y-%m-%d %H:%M:%S')
 
     mailboxes.each { |mailbox|
-      puts "Fetching #{mailbox}"
+      puts "Fetching #{mailbox} ..."
 
       synchronize_mailbox(mailbox)
     }
+
+    @index[:last_check] = start
+    write_index
   end
 
   private
+
+  def write_index
+    tmp = "#{@index_path}~"
+    File.open(tmp, 'w') { |file| file.puts YAML.dump @index }
+    FileUtils.mv(tmp, @index_path)
+  end
 
   def synchronize_mailbox(mailbox)
     @imap.examine(mailbox)
@@ -103,7 +111,7 @@ class Gmail
   end
 
   def synchronize_flags(uids, mailbox, maildir)
-    idx = @index['emails'].include?(mailbox.to_sym) ? @index['emails'][mailbox.to_sym] : []
+    idx = @index[:emails].include?(mailbox.to_sym) ? @index[:emails][mailbox.to_sym] : []
 
     return if idx.empty?
 
