@@ -71,21 +71,30 @@ class Gmail
       remove_uids.include? item[:uid]
     }
 
-    puts "  #{new_uids.size} fetched"
-    puts "  #{remove_uids.size} removed"
+    puts "  #{new_uids.size} fetched" unless new_uids.size == 0
+    puts "  #{remove_uids.size} removed" unless remove_uids.size == 0
 
     # synchronize flags
-    if @index.include?('last_check') && !@index['last_check'].nil?
-      ts = DateTime.parse(@index['last_check'])
+    if @index.include?(:last_check) && !@index[:last_check].nil?
+      ts = DateTime.parse(@index[:last_check])
       remote_uids = @imap.uid_search(['SINCE', ts.strftime('%e-%b-%Y')])
 
       synchronize_flags(remote_uids, mailbox, maildir)
-      puts "  Flags synched"
+      puts "  Flags synched" unless remote_uids.size == 0
     end
 
     # update index
     @index[:emails][mailbox.to_sym] = idx
-    File.open(@index_path, 'w') { |file| file.puts YAML.dump @index }
+    write_index
+
+  rescue Interrupt # catch Ctrl-C
+    # save current processed index
+    unless idx.nil? || idx.empty?
+      @index[:emails][mailbox.to_sym] = idx
+      write_index
+    end
+
+    exit
   end
 
   def fetch(uids, maildir)
@@ -122,7 +131,7 @@ class Gmail
       f = @imap.uid_fetch(uid, ['FLAGS'])
       flags = f[0].attr['FLAGS']
 
-      mdir = maildir.get(local_uids[uid.to_sym])
+      mdir = maildir.get(local_uids[uid])
 
       mdir.add_flag('S') if !mdir.flags.include?('S') && flags.include?(:Seen)
       mdir.add_flag('F') if !mdir.flags.include?('F') && flags.include?(:Flagged)
