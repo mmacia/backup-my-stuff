@@ -1,0 +1,12 @@
+require 'maildir'
+require 'net/imap'
+require 'yaml/store'
+require 'fileutils'
+require 'date'
+require 'httparty'
+require 'bms/backup'
+require 'bms/repository_base'
+require 'bms/bitbucket'
+require 'bms/github'
+require 'bms/gmail'
+

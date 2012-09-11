@@ -1,0 +1,131 @@
+#!/usr/bin/env ruby
+# encoding: utf-8
+
+$:.unshift(File.join(File.dirname(__FILE__), "/../lib"))
+require 'bms'
+require 'optparse'
+require 'pp'
+
+
+DEFAULTS = {
+  global: {
+    cache_dir:  '/tmp/backup',
+    backup_dir: File.join(ENV['HOME'], 'backup'),
+    max_backups: 3,
+    compress: true
+  },
+  gmail: {
+    host:     'imap.gmail.com',
+    port:     993,
+    ssl:      true,
+    username: 'user',
+    password: 'secret'
+  },
+  github: {
+    username: 'user',
+    password: 'secret'
+  },
+  bitbucket: {
+    username: 'user',
+    password: 'secret'
+  },
+  mysql: {
+    databases: [
+      { 
+        schema:   'my_database',
+        user:     'user',
+        password: 'secret'
+      }
+    ]
+  }
+}
+
+conf_file = File.join(ENV['HOME'], '.bms.yml')
+
+if File.exists? conf_file
+  conf = YAML.load_file(conf_file).merge(DEFAULTS)
+
+  # update with new values
+  tmp = "#{conf_file}~"
+  File.open(tmp, 'w') { |file| file.puts YAML.dump conf }
+  FileUtils.mv(tmp, conf_file)
+else
+  tmp = "#{conf_file}~"
+  File.open(tmp, 'w') { |file| file.puts YAML.dump DEFAULTS }
+  FileUtils.mv(tmp, conf_file)
+end
+
+
+sub_opts = {
+  options: {},
+  verbose: false
+}
+
+global = OptionParser.new do |o|
+  o.banner = "USAGE: #{$0} [options] [subcommand [options]]"
+  o.on("-v",
+       "--verbose",
+       "Run verbosely") do |v|
+    sub_opts[:verbose] = true
+  end
+end
+
+subcommands = {
+  'gmail' => OptionParser.new do |o|
+    o.banner = "Usage: gmail [options]"
+    o.on('-u', '--user [username]', 'Gmail username') do |u|
+      sub_opts[:options][:username] = u
+    end
+    o.on('-p', '--password [password]', 'Gmail password') do |p|
+      sub_opts[:options][:password] = p
+    end
+  end,
+
+  'github' => OptionParser.new do |o|
+    o.banner = "Usage: github [options]"
+    o.on('-u', '--user [username]', 'Github username') do |u|
+      sub_opts[:options][:username] = u
+    end
+    o.on('-p', '--password [password]', 'Github password') do |p|
+      sub_opts[:options][:password] = p
+    end
+    o.on('-r', '--repository [name]', 'Github repository name') do |r|
+      sub_opts[:options][:repository] = r
+    end
+  end,
+
+  'bitbucket' => OptionParser.new do |o|
+    o.banner = "Usage: bitbucket [options]"
+    o.on('-u', '--user [username]', 'Bitbucket username') do |u|
+      sub_opts[:options][:username] = u
+    end
+    o.on('-p', '--password [password]', 'Bitbucket password') do |p|
+      sub_opts[:options][:password] = p
+    end
+  end
+}
+
+
+if ARGV.empty?
+  STDERR.puts "You need to provide an action"
+  STDERR.puts "USAGE: #{$0} [options] [subcommand [options]]"
+  STDERR.puts "Available subcommands: gmail, github, bitbucket"
+  exit
+end
+
+global.order!
+command = ARGV.shift
+subcommands[command].order!
+
+
+options = conf[command.to_sym].merge(conf[:global]).merge(sub_opts[:options])
+#p command
+#p options
+
+case command
+when 'github'
+  obj = BMS::Github.new(options)
+end
+
+obj.perform
+

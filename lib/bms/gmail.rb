@@ -1,22 +1,13 @@
 class Gmail
-  DEFAULTS = {
-    host:       'imap.gmail.com',
-    port:       993,
-    ssl:        true,
-    backup_dir: '/tmp/gmail',
-    username:   'user',
-    password:   'secret',
-  }
-
-  def initialize(opts = [])
-    @options = DEFAULTS.merge(opts)
+  def initialize(opts = {})
+    @options = opts
 
     @imap = Net::IMAP.new(@options[:host], @options)
     @imap.login(@options[:username], @options[:password])
 
-    Dir.mkdir(@options[:backup_dir]) unless Dir.exist? @options[:backup_dir]
+    Dir.mkdir(@options[:backup_cache]) unless Dir.exist? @options[:backup_cache]
 
-    @index_path = "#{@options[:backup_dir]}/index.yml"
+    @index_path = "#{@options[:backup_cache]}/index.yml"
 
     # initialize index
     if !File.exist? @index_path
@@ -58,7 +49,7 @@ class Gmail
 
     idx = @index[:emails].include?(mailbox.to_sym) ? @index[:emails][mailbox.to_sym] : []
 
-    maildir = Maildir.new("#{@options[:backup_dir]}/#{mailbox}")
+    maildir = Maildir.new("#{@options[:backup_cache]}/#{mailbox}")
     local_uids = idx.map { |msg| msg[:uid] }
 
     # fetch new messages
@@ -101,7 +92,7 @@ class Gmail
     processed = []
 
     uids.each { |uid|
-      f = @imap.uid_fetch(uid, ['FLAGS', 'RFC822', 'ENVELOPE'])
+      f = @imap.uid_fetch(uid, ['FLAGS', 'RFC822'])
       flags = f[0].attr['FLAGS']
       raw = f[0].attr['RFC822']
 
