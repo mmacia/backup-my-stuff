@@ -4,24 +4,20 @@ module BMS
       p 'Backup::perform'
     end
 
-    def compress(repo_dir, new_filename, old_filename = nil)
-      puts "compressing #{repo_dir} ..."
-      dir = File.join(@options[:backup_dir], repo_dir)
+    def compress(target, filename)
+      base = File.basename(target)
+      output = File.join(@options[:backup_dir], filename)
+
+      puts "compressing #{base} ..."
       ret = false
 
-      return ret unless File.directory?(dir)
-
-      `cd #{@options[:backup_dir]}; tar cvjf #{new_filename}.tmp #{repo_dir}`
+      `tar cvjf #{output}.tmp -C #{File.dirname(target)} #{base}`
       ret = $?.success?
 
-      if ret
-        `mv #{@options[:backup_dir]}/#{new_filename}.tmp #{@options[:backup_dir]}/#{new_filename}` # rename file on success
-        `rm -f #{@options[:backup_dir]}/#{old_filename}` unless old_filename.nil?
-      else
-        `rm -f #{@options[:backup_dir]}/#{new_filename}.tmp`
-      end
+      # rename file on success
+      ret ? File.rename("#{output}.tmp", output) : File.delete("#{output}.tmp")
 
-      ret
+      return ret
     end
 
     def store

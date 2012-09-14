@@ -3,8 +3,8 @@ class Bitbucket
   base_uri 'https://api.bitbucket.org/1.0'
 
   def initialize(u, p)
-    @auth = { :username => u, :password => p }
-    @repositories = []
+    super
+    @repo_type = 'bitbucket'
   end
 
   def repositories

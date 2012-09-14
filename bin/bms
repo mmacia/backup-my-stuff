@@ -125,6 +125,8 @@ options = conf[command.to_sym].merge(conf[:global]).merge(sub_opts[:options])
 case command
 when 'github'
   obj = BMS::Github.new(options)
+when 'bitbucket'
+  obj = BMS::Bitbucket.new(options)
 end
 
 obj.perform
