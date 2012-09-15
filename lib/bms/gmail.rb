@@ -93,6 +93,8 @@ class Gmail
 
     uids.each { |uid|
       f = @imap.uid_fetch(uid, ['FLAGS', 'RFC822'])
+      next if f.nil?
+      
       flags = f[0].attr['FLAGS']
       raw = f[0].attr['RFC822']
 
@@ -106,7 +108,10 @@ class Gmail
       mdir.add_flag('F') if flags.include? :Flagged
       processed << { uid: uid, key: mdir.key }
     }
+    
+    return processed
 
+  rescue Net::IMAP::ByResponseError
     return processed
   end
 
