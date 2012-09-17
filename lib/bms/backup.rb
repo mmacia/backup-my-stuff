@@ -6,22 +6,17 @@ module BMS
 
     def compress(target, filename)
       base = File.basename(target)
-      output = File.join(@options[:backup_dir], filename)
 
       puts "compressing #{base} ..."
       ret = false
 
-      `tar cvjf #{output}.tmp -C #{File.dirname(target)} #{base}`
+      `tar cvjf #{filename}.tmp -C #{File.dirname(target)} #{base}`
       ret = $?.success?
 
       # rename file on success
-      ret ? File.rename("#{output}.tmp", output) : File.delete("#{output}.tmp")
+      ret ? File.rename("#{filename}.tmp", filename) : File.delete("#{filename}.tmp")
 
       return ret
-    end
-
-    def store
-      p 'Backup::store'
     end
   end
 end

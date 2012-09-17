@@ -127,6 +127,8 @@ when 'github'
   obj = BMS::Github.new(options)
 when 'bitbucket'
   obj = BMS::Bitbucket.new(options)
+when 'gmail'
+  obj = BMS::Gmail.new(options)
 end
 
 obj.perform
