@@ -41,9 +41,9 @@ module BMS
     def perform
       synchronize
 
-      filename = File.join(@options[:backup_dir], "gmail-#{@index[:last_check].strftime('%Y%m%d%H%M%S')}.tar.bz2")
+      ts = DateTime.parse(@index[:last_check])
+      filename = File.join(@options[:backup_dir], "gmail-#{ts.strftime('%Y%m%d%H%M%S')}.tar.bz2")
       compress("#{@options[:cache_dir]}/gmail", filename)
-
     end
 
     private
